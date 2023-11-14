@@ -1,5 +1,10 @@
 # Install 
 
+- Create a copy of the .env template file with the databricks server and host for the Dashboard Runner resource already filled in.
+- Add the databricks token to use
+- Create a new python environment with those 4 libraries installed
+- Run the uvicorn main code to test the app locally 
+
 ```
 conda create -n pcode python=3.10.6
 conda activate pcode

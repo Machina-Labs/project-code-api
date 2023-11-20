@@ -1,14 +1,10 @@
 from fastapi import FastAPI, Depends, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-
+from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, BigInteger, Boolean, Column, Date, DateTime, Float, or_, desc
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-
-from pydantic import BaseModel
-
-from random import randrange
 
 from dotenv import load_dotenv
 import os
@@ -63,7 +59,6 @@ class Project(Base):
     po_id = Column(Float)
     po_number = Column(String)
     owner_name = Column(String)
-    account_opp_id = Column(Integer)
     sf_account_id = Column(String)
     sf_opp_id = Column(String)
     is_deleted_account = Column(Boolean)
@@ -84,7 +79,7 @@ def root():
 """
 # Example calls. 
 http://localhost:8000/project?search_term=SPAC
-http://localhost:8000/project?search_term=ZIOO297
+http://localhost:8000/project?search_term=SPCX653
 """
 @app.get("/project")
 def get_project(

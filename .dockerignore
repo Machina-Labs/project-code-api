@@ -1,0 +1,8 @@
+.venv
+.vscode
+ARCHIVE
+.python-version
+poetry.lock
+push_to_acr.sh
+README.md
+__pycache__

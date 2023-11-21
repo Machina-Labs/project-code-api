@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Query, status, HTTPException
+from fastapi import FastAPI, Depends, Query, status, HTTPException, Header
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
@@ -43,6 +43,7 @@ engine = create_engine(
 # Create a sessionmaker
 Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
 # Define a dependency that provides a session
 def session():
     db = Session()
@@ -51,9 +52,11 @@ def session():
     finally:
         db.close()
 
+
 app = FastAPI()
 
 Base = declarative_base(bind=engine)
+
 
 # Entity Project
 class Project(Base):
@@ -84,27 +87,43 @@ class Project(Base):
     partition_day = Column(Date)
     project_code = Column(String)
 
+
 # Updated Request Body
 class ProjectRequest(BaseModel):
     search_term: str = Query(..., max_length=100)
+
 
 @app.get("/")
 def root():
     return {"message": "Hello Lakehouse"}
 
+
+APP_CLIENT_NAME = os.getenv("APP_CLIENT_NAME")
+APP_KEY = os.getenv("APP_KEY")
 """
 # Example calls. 
 http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy
 http://localhost:8000/project?search_term=SPCX653
+curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
 """
+
+
 @app.get("/project")
 def get_project(
     search_term: str = Query(None, max_length=100),
-    app_key: str = Query(None),  # Add app_key as a query parameter
+    # app_key: str = Query(None),  # Add app_key as a query parameter
+    x_api_key: str = Header(None),  # Get API key from header
     db: Session = Depends(session),
 ):
-    # Verify the app_key
-    if app_key != APP_KEY:
+    # # Verify the app_key
+    # if app_key != APP_KEY:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_401_UNAUTHORIZED,
+    #         detail="Invalid authentication credentials",
+    #     )
+    # Verify the API key
+    if x_api_key != APP_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",

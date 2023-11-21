@@ -23,7 +23,7 @@ local-dev: make_activate_env
 deploy-prod: make_activate_env
 	@echo "Deploying PROD to Azure"
 	# @git checkout main
-	@sudo docker login machinacr.azurecr.us
+	# @sudo docker login machinacr.azurecr.us
 	@sudo docker build -t project-code-api:latest . --no-cache
 	@sudo docker tag project-code-api:latest machinacr.azurecr.us/project-code-api:latest
 	@sudo docker push machinacr.azurecr.us/project-code-api:latest

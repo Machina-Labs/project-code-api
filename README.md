@@ -21,3 +21,8 @@ curl -X GET 'http://localhost:8000/project?search_term=SPAC'
 
 - https://github.com/tiangolo/fastapi
 - https://betterprogramming.pub/build-a-fastapi-on-the-lakehouse-94e4052cc3c9
+
+# To Do
+
+[ ] Limit search results with pagination, e.g. project?search_term=A&limit=10 
+[ ] Add authenentication token 

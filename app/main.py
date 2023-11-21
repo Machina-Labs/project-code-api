@@ -91,7 +91,7 @@ def get_project(
         result_set = db.query(Project).filter(
             or_(
                 Project.account_name.ilike(f"%{upper_search_term}%"), 
-                Project.project_code == upper_search_term
+                Project.project_code.ilike(f"%{upper_search_term}%")
             )
         ).order_by(desc(Project.opp_created_date)).all()
     else:

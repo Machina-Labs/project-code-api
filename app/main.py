@@ -1,8 +1,21 @@
-from fastapi import FastAPI, Depends, Query, status
+from fastapi import FastAPI, Depends, Query, status, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, BigInteger, Boolean, Column, Date, DateTime, Float, or_, desc
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    or_,
+    desc,
+)
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -13,17 +26,18 @@ import os
 load_dotenv()
 
 # Retrieve environment variables
-databricks_token = os.getenv("DATABRICKS_TOKEN")
-databricks_server_hostname = os.getenv("DATABRICKS_SERVER_HOSTNAME")
-databricks_http_path = os.getenv("DATABRICKS_HTTP_PATH")
+DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
+DATABRICKS_SERVER_HOSTNAME = os.getenv("DATABRICKS_SERVER_HOSTNAME")
+DATABRICKS_HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
+APP_CLIENT_NAME = os.getenv("APP_CLIENT_NAME")
+APP_KEY = os.getenv("APP_KEY")
 
 # Construct the Databricks database URI
-DATABRICKS_DATABASE_URI = f"databricks+connector://token:{databricks_token}@{databricks_server_hostname}:443/{databricks_http_path}"
+DATABRICKS_DATABASE_URI = f"databricks+connector://token:{DATABRICKS_TOKEN}@{DATABRICKS_SERVER_HOSTNAME}:443/{DATABRICKS_HTTP_PATH}"
 
 # Create the SQLAlchemy engine
 engine = create_engine(
-    DATABRICKS_DATABASE_URI,
-    connect_args={"http_path": databricks_http_path}
+    DATABRICKS_DATABASE_URI, connect_args={"http_path": DATABRICKS_HTTP_PATH}
 )
 
 # Create a sessionmaker
@@ -44,9 +58,11 @@ Base = declarative_base(bind=engine)
 # Entity Project
 class Project(Base):
     __tablename__ = "sf_opportunities"
-    __table_args__ = {'schema': 'etl'}
+    __table_args__ = {"schema": "etl"}
 
-    sf_opp_index = Column(BigInteger, primary_key=True)  # Assuming 'id' is your unique identifier
+    sf_opp_index = Column(
+        BigInteger, primary_key=True
+    )  # Assuming 'id' is your unique identifier
     # New fields
     sf_account_index = Column(BigInteger)
     account_name = Column(String)
@@ -78,27 +94,75 @@ def root():
 
 """
 # Example calls. 
-http://localhost:8000/project?search_term=SPAC
+http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy
 http://localhost:8000/project?search_term=SPCX653
 """
 @app.get("/project")
 def get_project(
     search_term: str = Query(None, max_length=100),
+    app_key: str = Query(None),  # Add app_key as a query parameter
     db: Session = Depends(session),
 ):
+    # Verify the app_key
+    if app_key != APP_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+        )
+
+    # Existing logic for querying the database
     if search_term:
         upper_search_term = search_term.upper()
-        result_set = db.query(Project).filter(
-            or_(
-                Project.account_name.ilike(f"%{upper_search_term}%"), 
-                Project.project_code.ilike(f"%{upper_search_term}%")
+        result_set = (
+            db.query(Project)
+            .filter(
+                or_(
+                    Project.account_name.ilike(f"%{upper_search_term}%"),
+                    Project.account_code.ilike(f"%{upper_search_term}%"),
+                    Project.project_code.ilike(f"%{upper_search_term}%"),
+                )
             )
-        ).order_by(desc(Project.opp_created_date)).all()
+            .order_by(desc(Project.opp_created_date))
+            .all()
+        )
     else:
-        result_set = db.query(Project).order_by(desc(Project.opp_created_date)).all()
+        result_set = db.query(Project).all()
 
-    response_body = jsonable_encoder(result_set)
-    return JSONResponse(status_code=status.HTTP_200_OK, content=response_body)
+    # Filter out null entries and convert the result set to JSON
+    filtered_result_set = [item for item in result_set if item is not None]
+    json_result = jsonable_encoder(filtered_result_set)
+
+    return JSONResponse(content=json_result)
+
+
+# @app.get("/project")
+# def get_project(
+#     search_term: str = Query(None, max_length=100), db: Session = Depends(session)
+# ):
+#     if search_term:
+#         upper_search_term = search_term.upper()
+#         result_set = (
+#             db.query(Project)
+#             .filter(
+#                 or_(
+#                     Project.account_name.ilike(f"%{upper_search_term}%"),
+#                     Project.account_code.ilike(f"%{upper_search_term}%"),
+#                     Project.project_code.ilike(f"%{upper_search_term}%"),
+#                 )
+#             )
+#             .order_by(desc(Project.opp_created_date))
+#             .all()
+#         )
+#     else:
+#         result_set = db.query(Project).all()
+
+#     # Filter out null entries from the result set
+#     filtered_result_set = [item for item in result_set if item is not None]
+
+#     # Convert the filtered result set to JSON
+#     json_result = jsonable_encoder(filtered_result_set)
+
+#     return JSONResponse(content=json_result)
 
 
 ############### Example #################################

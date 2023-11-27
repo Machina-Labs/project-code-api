@@ -18,6 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.exc import DatabaseError
 
 from dotenv import load_dotenv
 import os
@@ -105,23 +106,17 @@ APP_KEY = os.getenv("APP_KEY")
 http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy
 http://localhost:8000/project?search_term=SPCX653
 curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
-curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
-"""
 
+curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+"""
 
 @app.get("/project")
 def get_project(
     search_term: str = Query(None, max_length=100),
-    # app_key: str = Query(None),  # Add app_key as a query parameter
     x_api_key: str = Header(None),  # Get API key from header
     db: Session = Depends(session),
 ):
-    # # Verify the app_key
-    # if app_key != APP_KEY:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_401_UNAUTHORIZED,
-    #         detail="Invalid authentication credentials",
-    #     )
     # Verify the API key
     if x_api_key != APP_KEY:
         raise HTTPException(
@@ -129,29 +124,103 @@ def get_project(
             detail="Invalid authentication credentials",
         )
 
-    # Existing logic for querying the database
-    if search_term:
-        upper_search_term = search_term.upper()
-        result_set = (
-            db.query(Project)
-            .filter(
-                or_(
-                    Project.account_name.ilike(f"%{upper_search_term}%"),
-                    Project.account_code.ilike(f"%{upper_search_term}%"),
-                    Project.project_code.ilike(f"%{upper_search_term}%"),
+    try:
+        if search_term:
+            upper_search_term = search_term.upper()
+            result_set = (
+                db.query(Project)
+                .filter(
+                    or_(
+                        Project.account_name.ilike(f"%{upper_search_term}%"),
+                        Project.account_code.ilike(f"%{upper_search_term}%"),
+                        Project.project_code.ilike(f"%{upper_search_term}%"),
+                    )
                 )
+                .order_by(desc(Project.opp_created_date))
+                .all()
             )
-            .order_by(desc(Project.opp_created_date))
-            .all()
-        )
-    else:
-        result_set = db.query(Project).all()
+        else:
+            result_set = db.query(Project).all()
+
+    except DatabaseError as e:
+        # Check if the error is due to an invalid session handle
+        if "Invalid SessionHandle" in str(e):
+            # Close the current session
+            db.close()
+            # Restart a new session
+            db = Session()
+            # Retry the query
+            if search_term:
+                upper_search_term = search_term.upper()
+                result_set = (
+                    db.query(Project)
+                    .filter(
+                        or_(
+                            Project.account_name.ilike(f"%{upper_search_term}%"),
+                            Project.account_code.ilike(f"%{upper_search_term}%"),
+                            Project.project_code.ilike(f"%{upper_search_term}%"),
+                        )
+                    )
+                    .order_by(desc(Project.opp_created_date))
+                    .all()
+                )
+            else:
+                result_set = db.query(Project).all()
+        else:
+            # If the error is not related to session handle, re-raise it
+            raise
 
     # Filter out null entries and convert the result set to JSON
     filtered_result_set = [item for item in result_set if item is not None]
     json_result = jsonable_encoder(filtered_result_set)
 
     return JSONResponse(content=json_result)
+
+
+
+# @app.get("/project")
+# def get_project(
+#     search_term: str = Query(None, max_length=100),
+#     # app_key: str = Query(None),  # Add app_key as a query parameter
+#     x_api_key: str = Header(None),  # Get API key from header
+#     db: Session = Depends(session),
+# ):
+#     # # Verify the app_key
+#     # if app_key != APP_KEY:
+#     #     raise HTTPException(
+#     #         status_code=status.HTTP_401_UNAUTHORIZED,
+#     #         detail="Invalid authentication credentials",
+#     #     )
+#     # Verify the API key
+#     if x_api_key != APP_KEY:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Invalid authentication credentials",
+#         )
+
+#     # Existing logic for querying the database
+#     if search_term:
+#         upper_search_term = search_term.upper()
+#         result_set = (
+#             db.query(Project)
+#             .filter(
+#                 or_(
+#                     Project.account_name.ilike(f"%{upper_search_term}%"),
+#                     Project.account_code.ilike(f"%{upper_search_term}%"),
+#                     Project.project_code.ilike(f"%{upper_search_term}%"),
+#                 )
+#             )
+#             .order_by(desc(Project.opp_created_date))
+#             .all()
+#         )
+#     else:
+#         result_set = db.query(Project).all()
+
+#     # Filter out null entries and convert the result set to JSON
+#     filtered_result_set = [item for item in result_set if item is not None]
+#     json_result = jsonable_encoder(filtered_result_set)
+
+#     return JSONResponse(content=json_result)
 
 
 # @app.get("/project")

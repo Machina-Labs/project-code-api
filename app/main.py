@@ -132,17 +132,16 @@ def get_project(
             detail="Invalid authentication credentials",
         )
 
-    db = Session()
     try:
+        db = Session()
         result_set = execute_project_query(db, search_term)
     except DatabaseError as e:
+        Session.remove()  # Dispose the current session
         if "Invalid SessionHandle" in str(e):
-            Session.remove()  # Dispose the current session
             db = Session()  # Create a new session
             result_set = execute_project_query(db, search_term)
         else:
-            raise
-
+            raise e
     finally:
         Session.remove()  # Ensure the session is removed after processing
 
@@ -150,6 +149,7 @@ def get_project(
     json_result = jsonable_encoder(filtered_result_set)
 
     return JSONResponse(content=json_result)
+
 
 # def execute_project_query(search_term):
 #     db = Session()  # Directly acquire a session

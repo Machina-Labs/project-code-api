@@ -16,7 +16,7 @@ from sqlalchemy import (
     or_,
     desc,
 )
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import DatabaseError
 
@@ -42,20 +42,9 @@ engine = create_engine(
 )
 
 # Create a sessionmaker
-Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-# Define a dependency that provides a session
-def session():
-    db = Session()
-    try:
-        yield db
-    finally:
-        db.close()
-
+Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 
 app = FastAPI()
-
 Base = declarative_base(bind=engine)
 
 
@@ -89,6 +78,18 @@ class Project(Base):
     project_code = Column(String)
 
 
+"""
+# Example calls. 
+http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy
+
+http://localhost:8000/project?search_term=SPCX653
+
+curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+
+curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+
+"""
+
 # Updated Request Body
 class ProjectRequest(BaseModel):
     search_term: str = Query(..., max_length=100)
@@ -98,26 +99,31 @@ class ProjectRequest(BaseModel):
 def root():
     return {"message": "Hello Lakehouse"}
 
+# Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 
-APP_CLIENT_NAME = os.getenv("APP_CLIENT_NAME")
-APP_KEY = os.getenv("APP_KEY")
-"""
-# Example calls. 
-http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy
-http://localhost:8000/project?search_term=SPCX653
-curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+def execute_project_query(search_term):
+    db = Session()  # Directly acquire a session
+    upper_search_term = search_term.upper() if search_term else None
+    query = db.query(Project)
 
-curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
-curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
-"""
+    if upper_search_term:
+        query = query.filter(
+            or_(
+                Project.account_name.ilike(f"%{upper_search_term}%"),
+                Project.account_code.ilike(f"%{upper_search_term}%"),
+                Project.project_code.ilike(f"%{upper_search_term}%"),
+            )
+        ).order_by(desc(Project.opp_created_date))
+    else:
+        query = query.order_by(desc(Project.opp_created_date))
+
+    return query.all()
 
 @app.get("/project")
 def get_project(
     search_term: str = Query(None, max_length=100),
-    x_api_key: str = Header(None),  # Get API key from header
-    db: Session = Depends(session),
+    x_api_key: str = Header(None),
 ):
-    # Verify the API key
     if x_api_key != APP_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -125,208 +131,15 @@ def get_project(
         )
 
     try:
-        if search_term:
-            upper_search_term = search_term.upper()
-            result_set = (
-                db.query(Project)
-                .filter(
-                    or_(
-                        Project.account_name.ilike(f"%{upper_search_term}%"),
-                        Project.account_code.ilike(f"%{upper_search_term}%"),
-                        Project.project_code.ilike(f"%{upper_search_term}%"),
-                    )
-                )
-                .order_by(desc(Project.opp_created_date))
-                .all()
-            )
-        else:
-            result_set = db.query(Project).all()
-
+        result_set = execute_project_query(search_term)
     except DatabaseError as e:
-        # Check if the error is due to an invalid session handle
         if "Invalid SessionHandle" in str(e):
-            # Close the current session
-            db.close()
-            # Restart a new session
-            db = Session()
-            # Retry the query
-            if search_term:
-                upper_search_term = search_term.upper()
-                result_set = (
-                    db.query(Project)
-                    .filter(
-                        or_(
-                            Project.account_name.ilike(f"%{upper_search_term}%"),
-                            Project.account_code.ilike(f"%{upper_search_term}%"),
-                            Project.project_code.ilike(f"%{upper_search_term}%"),
-                        )
-                    )
-                    .order_by(desc(Project.opp_created_date))
-                    .all()
-                )
-            else:
-                result_set = db.query(Project).all()
+            Session.remove()  # Dispose the current session
+            result_set = execute_project_query(search_term)
         else:
-            # If the error is not related to session handle, re-raise it
             raise
 
-    # Filter out null entries and convert the result set to JSON
     filtered_result_set = [item for item in result_set if item is not None]
     json_result = jsonable_encoder(filtered_result_set)
 
     return JSONResponse(content=json_result)
-
-
-
-# @app.get("/project")
-# def get_project(
-#     search_term: str = Query(None, max_length=100),
-#     # app_key: str = Query(None),  # Add app_key as a query parameter
-#     x_api_key: str = Header(None),  # Get API key from header
-#     db: Session = Depends(session),
-# ):
-#     # # Verify the app_key
-#     # if app_key != APP_KEY:
-#     #     raise HTTPException(
-#     #         status_code=status.HTTP_401_UNAUTHORIZED,
-#     #         detail="Invalid authentication credentials",
-#     #     )
-#     # Verify the API key
-#     if x_api_key != APP_KEY:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Invalid authentication credentials",
-#         )
-
-#     # Existing logic for querying the database
-#     if search_term:
-#         upper_search_term = search_term.upper()
-#         result_set = (
-#             db.query(Project)
-#             .filter(
-#                 or_(
-#                     Project.account_name.ilike(f"%{upper_search_term}%"),
-#                     Project.account_code.ilike(f"%{upper_search_term}%"),
-#                     Project.project_code.ilike(f"%{upper_search_term}%"),
-#                 )
-#             )
-#             .order_by(desc(Project.opp_created_date))
-#             .all()
-#         )
-#     else:
-#         result_set = db.query(Project).all()
-
-#     # Filter out null entries and convert the result set to JSON
-#     filtered_result_set = [item for item in result_set if item is not None]
-#     json_result = jsonable_encoder(filtered_result_set)
-
-#     return JSONResponse(content=json_result)
-
-
-# @app.get("/project")
-# def get_project(
-#     search_term: str = Query(None, max_length=100), db: Session = Depends(session)
-# ):
-#     if search_term:
-#         upper_search_term = search_term.upper()
-#         result_set = (
-#             db.query(Project)
-#             .filter(
-#                 or_(
-#                     Project.account_name.ilike(f"%{upper_search_term}%"),
-#                     Project.account_code.ilike(f"%{upper_search_term}%"),
-#                     Project.project_code.ilike(f"%{upper_search_term}%"),
-#                 )
-#             )
-#             .order_by(desc(Project.opp_created_date))
-#             .all()
-#         )
-#     else:
-#         result_set = db.query(Project).all()
-
-#     # Filter out null entries from the result set
-#     filtered_result_set = [item for item in result_set if item is not None]
-
-#     # Convert the filtered result set to JSON
-#     json_result = jsonable_encoder(filtered_result_set)
-
-#     return JSONResponse(content=json_result)
-
-
-############### Example #################################
-## docs of example: https://betterprogramming.pub/build-a-fastapi-on-the-lakehouse-94e4052cc3c9
-# """
-# Base = declarative_base(bind=engine)
-
-# # Entity User
-# class Users(Base):
-#     __tablename__ = "users"
-#     # __table_args__ = {"autoload": True}
-#     id = Column(Integer, primary_key=True, nullable=False)
-#     first_name = Column(String, nullable=False)
-#     last_name = Column(String, nullable=False)
-#     address = Column(String, nullable=True)
-#     email = Column(String, nullable=True)
-#     ip_address = Column(String, nullable=True)
-
-
-# # Request Body
-# class UsersRequest(BaseModel):
-#     first_name: str = Query(..., max_length=50)
-#     last_name: str = Query(..., max_length=50)
-
-
-# @app.get("/")
-# def root():
-#     return {"message": "Hello Lakehouse"}
-
-
-# @app.get("/user")
-# def get_user(
-#     id: int = None,
-#     first_name: str = Query(None, max_length=50),
-#     db: Session = Depends(session),
-# ):
-#     if id is not None:
-#         result_set = db.query(Users).filter(Users.id == id).all()
-#     elif first_name is not None:
-#         result_set = db.query(Users).filter(Users.first_name == first_name).all()
-#     else:
-#         result_set = db.query(Users).all()
-#     response_body = jsonable_encoder(result_set)
-#     return JSONResponse(status_code=status.HTTP_200_OK, content=response_body)
-
-
-# @app.post("/user")
-# def create_user(request: UsersRequest, db: Session = Depends(session)):
-#     user = Users(
-#         id=randrange(1_000_000, 10_000_000),
-#         first_name=request.first_name,
-#         last_name=request.last_name,
-#     )
-#     db.add(user)
-#     db.commit()
-#     response_body = jsonable_encoder({"user_id": user.id})
-#     return JSONResponse(status_code=status.HTTP_200_OK, content=response_body)
-
-
-# @app.put("/user/{id}")
-# def update_user(id: int, request: UsersRequest, db: Session = Depends(session)):
-#     user = db.query(Users).filter(Users.id == id).first()
-#     if user is None:
-#         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND)
-#     user.first_name = request.first_name
-#     user.last_name = request.last_name
-#     db.commit()
-#     response_body = jsonable_encoder({"user_id": user.id})
-#     return JSONResponse(status_code=status.HTTP_200_OK, content=response_body)
-
-
-# @app.delete("/user/{id}")
-# def delete_user(id: int, db: Session = Depends(session)):
-#     db.query(Users).filter(Users.id == id).delete()
-#     db.commit()
-#     response_body = jsonable_encoder({"user_id": id, "msg": "record deleted"})
-#     return JSONResponse(status_code=status.HTTP_200_OK, content=response_body)
-
-# """

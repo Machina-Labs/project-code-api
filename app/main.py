@@ -84,6 +84,9 @@ http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3Blb
 
 http://localhost:8000/project?search_term=SPCX653
 
+
+curl -X GET "https://project-code-api.azurewebsites.us" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+
 curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
 
 curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
@@ -99,10 +102,9 @@ class ProjectRequest(BaseModel):
 def root():
     return {"message": "Hello Lakehouse"}
 
-# Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+# # Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 
-def execute_project_query(search_term):
-    db = Session()  # Directly acquire a session
+def execute_project_query(db, search_term):
     upper_search_term = search_term.upper() if search_term else None
     query = db.query(Project)
 
@@ -130,16 +132,64 @@ def get_project(
             detail="Invalid authentication credentials",
         )
 
+    db = Session()
     try:
-        result_set = execute_project_query(search_term)
+        result_set = execute_project_query(db, search_term)
     except DatabaseError as e:
         if "Invalid SessionHandle" in str(e):
             Session.remove()  # Dispose the current session
-            result_set = execute_project_query(search_term)
+            db = Session()  # Create a new session
+            result_set = execute_project_query(db, search_term)
         else:
             raise
+
+    finally:
+        Session.remove()  # Ensure the session is removed after processing
 
     filtered_result_set = [item for item in result_set if item is not None]
     json_result = jsonable_encoder(filtered_result_set)
 
     return JSONResponse(content=json_result)
+
+# def execute_project_query(search_term):
+#     db = Session()  # Directly acquire a session
+#     upper_search_term = search_term.upper() if search_term else None
+#     query = db.query(Project)
+
+#     if upper_search_term:
+#         query = query.filter(
+#             or_(
+#                 Project.account_name.ilike(f"%{upper_search_term}%"),
+#                 Project.account_code.ilike(f"%{upper_search_term}%"),
+#                 Project.project_code.ilike(f"%{upper_search_term}%"),
+#             )
+#         ).order_by(desc(Project.opp_created_date))
+#     else:
+#         query = query.order_by(desc(Project.opp_created_date))
+
+#     return query.all()
+
+# @app.get("/project")
+# def get_project(
+#     search_term: str = Query(None, max_length=100),
+#     x_api_key: str = Header(None),
+# ):
+#     if x_api_key != APP_KEY:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Invalid authentication credentials",
+#         )
+
+#     try:
+#         result_set = execute_project_query(search_term)
+#     except DatabaseError as e:
+#         if "Invalid SessionHandle" in str(e):
+#             Session.remove()  # Dispose the current session
+#             result_set = execute_project_query(search_term)
+#         else:
+#             raise
+
+#     filtered_result_set = [item for item in result_set if item is not None]
+#     json_result = jsonable_encoder(filtered_result_set)
+
+#     return JSONResponse(content=json_result)

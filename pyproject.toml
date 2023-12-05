@@ -11,6 +11,7 @@ fastapi = "^0.104.1"
 uvicorn = { version = "^0.24.0.post1", extras = ["standard"] }
 SQLAlchemy = "^1.4.50"
 sqlalchemy-databricks = "^0.2.0"
+databricks-sql-connector = "2.6"
 
 [build-system]
 requires = ["poetry-core"]

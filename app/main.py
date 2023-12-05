@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, Query, status, HTTPException, Header
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-
+from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import DatabaseError
@@ -21,7 +21,7 @@ from sqlalchemy import (
 )
 
 from pydantic import BaseModel
-
+from contextlib import contextmanager
 from dotenv import load_dotenv
 import os
 
@@ -40,22 +40,37 @@ DATABRICKS_DATABASE_URI = f"databricks+connector://token:{DATABRICKS_TOKEN}@{DAT
 
 # Create the SQLAlchemy engine
 engine = create_engine(
-    DATABRICKS_DATABASE_URI, connect_args={"http_path": DATABRICKS_HTTP_PATH}
+    DATABRICKS_DATABASE_URI, 
+    connect_args={"http_path": DATABRICKS_HTTP_PATH},
+    pool_recycle=1800  # Example: 30 minutes
 )
-
-# Create a sessionmaker
-# Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
-Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-def session():
-    db = Session()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 app = FastAPI()
-Base = declarative_base(bind=engine)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+# Dependency
+# def get_db():
+#     db = SessionLocal()
+#     try:
+#         yield db
+#     finally:
+#         db.close()
+
+
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 # Entity Project
@@ -100,7 +115,10 @@ curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0
 def root():
     return {"message": "Hello Lakehouse"}
 
-# # Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+@app.exception_handler(Exception)
+def validation_exception_handler(request, err):
+    base_error_message = f"Failed to execute: {request.method}: {request.url}"
+    return JSONResponse(status_code=400, content={"message": f"{base_error_message}. Detail: {err}"})
 
 def execute_project_query(db, search_term):
     upper_search_term = search_term.upper() if search_term else None
@@ -120,24 +138,39 @@ def execute_project_query(db, search_term):
     return query.all()
 
 @app.get("/project")
-def get_project(
-    search_term: str = Query(None, max_length=100),
-    x_api_key: str = Header(None),
-    db: Session = Depends(session)  # Injecting the session using Depends
-):
+def get_project(search_term: str = Query(None, max_length=100), x_api_key: str = Header(None)):
     if x_api_key != APP_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-        )
-
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    
     try:
-        result_set = execute_project_query(db, search_term)
+        with session_scope() as db:
+            result_set = execute_project_query(db, search_term)
+            filtered_result_set = [item for item in result_set if item is not None]
+            json_result = jsonable_encoder(filtered_result_set)
+            return JSONResponse(content=json_result)
     except DatabaseError as e:
-        # You can handle specific exceptions here if necessary
         raise e
 
-    filtered_result_set = [item for item in result_set if item is not None]
-    json_result = jsonable_encoder(filtered_result_set)
 
-    return JSONResponse(content=json_result)
+# @app.get("/project")
+# def get_project(
+#     search_term: str = Query(None, max_length=100),
+#     x_api_key: str = Header(None),
+#     db: Session = Depends(get_db)  # Injecting the session using Depends
+# ):
+#     if x_api_key != APP_KEY:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Invalid authentication credentials",
+#         )
+
+#     try:
+#         result_set = execute_project_query(db, search_term)
+#     except DatabaseError as e:
+#         # You can handle specific exceptions here if necessary
+#         raise e
+
+#     filtered_result_set = [item for item in result_set if item is not None]
+#     json_result = jsonable_encoder(filtered_result_set)
+
+#     return JSONResponse(content=json_result)

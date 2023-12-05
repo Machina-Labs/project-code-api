@@ -25,4 +25,22 @@ curl -X GET 'http://localhost:8000/project?search_term=SPAC'
 # To Do
 
 [ ] Limit search results with pagination, e.g. project?search_term=A&limit=10 
-[ ] Add authenentication token 
+[ ] Add authenentication token  
+
+# Example calls 
+
+```
+# Example calls. 
+http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy
+
+http://localhost:8000/project?search_term=SPCX653
+
+
+curl -X GET "https://project-code-api.azurewebsites.us" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+
+curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+
+curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+
+curl -X GET "https://project-code-api.azurewebsites.us" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+```

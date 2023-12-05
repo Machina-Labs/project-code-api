@@ -1,7 +1,10 @@
 from fastapi import FastAPI, Depends, Query, status, HTTPException, Header
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel
+
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.exc import DatabaseError
 from sqlalchemy import (
     create_engine,
     Column,
@@ -16,9 +19,8 @@ from sqlalchemy import (
     or_,
     desc,
 )
-from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.exc import DatabaseError
+
+from pydantic import BaseModel
 
 from dotenv import load_dotenv
 import os
@@ -42,7 +44,15 @@ engine = create_engine(
 )
 
 # Create a sessionmaker
-Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+# Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def session():
+    db = Session()
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 app = FastAPI()
 Base = declarative_base(bind=engine)
@@ -77,26 +87,14 @@ class Project(Base):
     partition_day = Column(Date)
     project_code = Column(String)
 
-
-"""
-# Example calls. 
-http://localhost:8000/project?search_term=SPAC&app_key=5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy
-
-http://localhost:8000/project?search_term=SPCX653
-
-
-curl -X GET "https://project-code-api.azurewebsites.us" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
-
-curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
-
-curl -X GET "https://project-code-api.azurewebsites.us/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
-
-"""
-
-# Updated Request Body
 class ProjectRequest(BaseModel):
     search_term: str = Query(..., max_length=100)
 
+"""
+# Example calls. 
+curl -X GET "http://localhost:8000" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+curl -X GET "http://localhost:8000/project?search_term=SPAC" -H "X-API-KEY: 5pA0RVLjcZrrEcNc7GhWT3BlbkFJ5rmx4MdvuJ4QQyVeTy"
+"""
 
 @app.get("/")
 def root():
@@ -125,6 +123,7 @@ def execute_project_query(db, search_term):
 def get_project(
     search_term: str = Query(None, max_length=100),
     x_api_key: str = Header(None),
+    db: Session = Depends(session)  # Injecting the session using Depends
 ):
     if x_api_key != APP_KEY:
         raise HTTPException(
@@ -133,63 +132,12 @@ def get_project(
         )
 
     try:
-        db = Session()
         result_set = execute_project_query(db, search_term)
     except DatabaseError as e:
-        Session.remove()  # Dispose the current session
-        if "Invalid SessionHandle" in str(e):
-            db = Session()  # Create a new session
-            result_set = execute_project_query(db, search_term)
-        else:
-            raise e
-    finally:
-        Session.remove()  # Ensure the session is removed after processing
+        # You can handle specific exceptions here if necessary
+        raise e
 
     filtered_result_set = [item for item in result_set if item is not None]
     json_result = jsonable_encoder(filtered_result_set)
 
     return JSONResponse(content=json_result)
-
-
-# def execute_project_query(search_term):
-#     db = Session()  # Directly acquire a session
-#     upper_search_term = search_term.upper() if search_term else None
-#     query = db.query(Project)
-
-#     if upper_search_term:
-#         query = query.filter(
-#             or_(
-#                 Project.account_name.ilike(f"%{upper_search_term}%"),
-#                 Project.account_code.ilike(f"%{upper_search_term}%"),
-#                 Project.project_code.ilike(f"%{upper_search_term}%"),
-#             )
-#         ).order_by(desc(Project.opp_created_date))
-#     else:
-#         query = query.order_by(desc(Project.opp_created_date))
-
-#     return query.all()
-
-# @app.get("/project")
-# def get_project(
-#     search_term: str = Query(None, max_length=100),
-#     x_api_key: str = Header(None),
-# ):
-#     if x_api_key != APP_KEY:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Invalid authentication credentials",
-#         )
-
-#     try:
-#         result_set = execute_project_query(search_term)
-#     except DatabaseError as e:
-#         if "Invalid SessionHandle" in str(e):
-#             Session.remove()  # Dispose the current session
-#             result_set = execute_project_query(search_term)
-#         else:
-#             raise
-
-#     filtered_result_set = [item for item in result_set if item is not None]
-#     json_result = jsonable_encoder(filtered_result_set)
-
-#     return JSONResponse(content=json_result)

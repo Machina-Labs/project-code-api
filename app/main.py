@@ -63,7 +63,6 @@ class Project(Base):
     po_id = Column(Float)
     po_number = Column(String)
     owner_name = Column(String)
-    account_opp_id = Column(Integer)
     sf_account_id = Column(String)
     sf_opp_id = Column(String)
     is_deleted_account = Column(Boolean)
@@ -84,7 +83,7 @@ def root():
 """
 # Example calls. 
 http://localhost:8000/project?search_term=SPAC
-http://localhost:8000/project?search_term=ZIOO297
+http://localhost:8000/project?search_term=SPCX653
 """
 @app.get("/project")
 def get_project(
